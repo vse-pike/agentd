@@ -1,0 +1,7 @@
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+agentd
+ROADMAP.md

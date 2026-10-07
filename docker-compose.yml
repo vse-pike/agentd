@@ -5,7 +5,7 @@ services:
     env_file: .env
     environment:
       WORKER_URL: http://claude-worker:8090
-      STT_URL: http://whisper:8001/v1
+      STT_URL: http://whisper:8000/v1
     volumes:
       - ./data:/data
     restart: unless-stopped

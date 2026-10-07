@@ -13,7 +13,7 @@ import (
 )
 
 type Client struct {
-	URL   string // база до /v1, например http://whisper:8001/v1
+	URL   string // база до /v1, например http://whisper:8000/v1
 	Model string // например Systran/faster-whisper-small
 	Key   string // пуст — без Authorization (локальный сервер)
 }
