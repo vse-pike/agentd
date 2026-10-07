@@ -12,7 +12,7 @@ import (
 
 const (
 	tick         = 10 * time.Second
-	agentTimeout = 16 * time.Minute // больше DEFAULT_TIMEOUT_SEC claude-worker (900 с), чтобы успел прийти его 504
+	agentTimeout = 31 * time.Minute // больше DEFAULT_TIMEOUT_SEC claude-worker (1800 с), чтобы успел прийти его 504
 	maxAttempts  = 3
 )
 
