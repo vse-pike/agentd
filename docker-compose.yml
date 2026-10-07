@@ -1,0 +1,18 @@
+services:
+  agentd:
+    image: vsepike/agentd:latest
+    container_name: agentd
+    env_file: .env
+    environment:
+      WORKER_URL: http://claude-worker:8090
+      STT_URL: http://whisper:8001/v1
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+networks:
+  default:
+    name: agentnet
+    external: true
