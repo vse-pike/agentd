@@ -9,6 +9,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"agentd/internal/schedule"
 	"agentd/internal/store"
 	"agentd/internal/stt"
 )
@@ -24,7 +25,9 @@ type bot struct {
 func (b *bot) routes(ctx context.Context) {
 	b.tb.Handle("/start", func(c tele.Context) error {
 		return c.Send("Пиши задачу текстом или голосовым — поставлю в очередь.\n" +
-			"Не выполнена — поставь новую с уточнением.\n\n/list — активные задачи\n/cancel <id> — отменить")
+			"Не выполнена — поставь новую с уточнением.\n" +
+			"Повторяющаяся: первая строка «ПОВТОРЯЮЩАЯСЯ ЗАДАЧА КАЖДЫЙ ДЕНЬ - 09:00».\n\n" +
+			"/list — активные задачи\n/cancel <id> — отменить")
 	})
 	b.tb.Handle("/list", func(c tele.Context) error { return b.list(ctx, c) })
 	b.tb.Handle("/cancel", func(c tele.Context) error { return b.cancel(ctx, c) })
@@ -43,11 +46,27 @@ func (b *bot) notify(text string) {
 }
 
 func (b *bot) text(ctx context.Context, c tele.Context) error {
-	id, err := b.store.CreateTask(ctx, c.Text())
+	_, reply, err := b.create(ctx, c.Text())
 	if err != nil {
-		return err
+		return c.Send(err.Error())
 	}
-	return c.Reply(fmt.Sprintf("Задача #%d в очереди.", id))
+	return c.Reply(reply)
+}
+
+// create разбирает текст задачи (включая заголовок повторения) и ставит её в очередь.
+func (b *bot) create(ctx context.Context, text string) (id int64, reply string, err error) {
+	spec, body, err := schedule.Parse(text)
+	if err != nil {
+		return 0, "", err
+	}
+	id, err = b.store.CreateTask(ctx, body, spec)
+	if err != nil {
+		return 0, "", err
+	}
+	if spec != "" {
+		return id, fmt.Sprintf("Задача #%d в очереди (повторяется: %s).", id, schedule.Describe(spec)), nil
+	}
+	return id, fmt.Sprintf("Задача #%d в очереди.", id), nil
 }
 
 func (b *bot) voice(ctx context.Context, c tele.Context) error {
@@ -67,11 +86,11 @@ func (b *bot) voice(ctx context.Context, c tele.Context) error {
 	if strings.TrimSpace(text) == "" {
 		return c.Send("Не разобрал голосовое.")
 	}
-	id, err := b.store.CreateTask(ctx, text)
+	_, reply, err := b.create(ctx, text)
 	if err != nil {
-		return err
+		return c.Send(err.Error())
 	}
-	return c.Reply(fmt.Sprintf("Задача #%d в очереди:\n\n%s", id, text))
+	return c.Reply(reply + "\n\n" + text)
 }
 
 func (b *bot) list(ctx context.Context, c tele.Context) error {
@@ -84,9 +103,28 @@ func (b *bot) list(ctx context.Context, c tele.Context) error {
 	}
 	var sb strings.Builder
 	for _, task := range tasks {
-		fmt.Fprintf(&sb, "#%d [%s] %s\n", task.ID, task.Status, task.Goal)
+		title := cutLine(task.Goal, 60)
+		if task.Schedule != "" {
+			next := ""
+			if !task.Deadline.IsZero() {
+				next = ", след. " + stamp(task.Deadline)
+			}
+			fmt.Fprintf(&sb, "#%d [🔁 %s%s] %s\n", task.ID, schedule.Describe(task.Schedule), next, title)
+		} else {
+			fmt.Fprintf(&sb, "#%d [%s] %s\n", task.ID, task.Status, title)
+		}
 	}
 	return c.Send(sb.String())
+}
+
+// cutLine — первая строка текста, обрезанная до n символов: цели бывают длинные.
+func cutLine(s string, n int) string {
+	s = strings.TrimSpace(strings.SplitN(s, "\n", 2)[0])
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }
 
 func (b *bot) cancel(ctx context.Context, c tele.Context) error {

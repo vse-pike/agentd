@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"agentd/internal/agent"
+	"agentd/internal/schedule"
 	"agentd/internal/store"
 )
 
@@ -64,8 +65,13 @@ func (w *worker) handle(ctx context.Context, task store.Task) {
 		task.Attempts++
 		task.Status = store.New // ретрай
 		if task.Attempts >= maxAttempts {
-			task.Status = store.Failed
-			msg = fmt.Sprintf("❌ #%d не выполнена после %d попыток: %v", task.ID, maxAttempts, err)
+			if task.Schedule == "" {
+				task.Status = store.Failed
+				msg = fmt.Sprintf("❌ #%d не выполнена после %d попыток: %v", task.ID, maxAttempts, err)
+			} else { // повторяющаяся не умирает — ждём следующего окна
+				reschedule(&task, time.Now())
+				msg = fmt.Sprintf("⚠️ #%d не удалась (%v), следующий запуск %s.", task.ID, err, stamp(task.Deadline))
+			}
 		}
 	} else {
 		w.store.AddEvent(ctx, task.ID, "note", outcome.Note)
@@ -73,11 +79,21 @@ func (w *worker) handle(ctx context.Context, task store.Task) {
 		switch outcome.Status {
 		case store.Done:
 			task.Result = outcome.Result
-			msg = fmt.Sprintf("✅ #%d выполнена.\n\n%s", task.ID, outcome.Result)
+			if task.Schedule == "" {
+				msg = fmt.Sprintf("✅ #%d выполнена.\n\n%s", task.ID, outcome.Result)
+			} else {
+				reschedule(&task, time.Now())
+				msg = fmt.Sprintf("🔁 #%d готово, следующий запуск %s.\n\n%s", task.ID, stamp(task.Deadline), outcome.Result)
+			}
 		case store.Waiting:
 			task.Deadline = outcome.Deadline
 		case store.Failed:
-			msg = fmt.Sprintf("❌ #%d не выполнена: %s", task.ID, outcome.Note)
+			if task.Schedule == "" {
+				msg = fmt.Sprintf("❌ #%d не выполнена: %s", task.ID, outcome.Note)
+			} else {
+				reschedule(&task, time.Now())
+				msg = fmt.Sprintf("⚠️ #%d не выполнена: %s\nСледующий запуск %s.", task.ID, outcome.Note, stamp(task.Deadline))
+			}
 		}
 	}
 
@@ -89,8 +105,24 @@ func (w *worker) handle(ctx context.Context, task store.Task) {
 	if !ok {
 		return // задачу отменили, пока работал агент
 	}
-	log.Info("agent finished", "status", task.Status)
+	log.Info("agent finished", "status", task.Status, "next", task.Deadline)
 	if msg != "" {
 		w.notify(msg)
 	}
 }
+
+// reschedule назначает повторяющейся задаче следующий запуск и сбрасывает попытки.
+// Расписание проверяется при создании, так что ошибка тут возможна только если
+// spec в базе повреждён — тогда задачу приходится добить.
+func reschedule(task *store.Task, now time.Time) {
+	next, err := schedule.Next(task.Schedule, now)
+	if err != nil {
+		task.Status = store.Failed
+		return
+	}
+	task.Status = store.Waiting
+	task.Deadline = next
+	task.Attempts = 0
+}
+
+func stamp(t time.Time) string { return t.Local().Format("02.01 15:04") }

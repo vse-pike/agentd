@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"agentd/internal/schedule"
 	"agentd/internal/store"
 )
 
@@ -75,7 +76,11 @@ func (r *Runner) Run(ctx context.Context, t store.Task) (Outcome, error) {
 
 func prompt(task store.Task) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Задача #%d. Сейчас %s.\n\nЦЕЛЬ\n%s\n\nЖУРНАЛ\n", task.ID, time.Now().Format(time.RFC3339), task.Goal)
+	fmt.Fprintf(&b, "Задача #%d. Сейчас %s.\n\n", task.ID, time.Now().Format(time.RFC3339))
+	if task.Schedule != "" {
+		fmt.Fprintf(&b, "Задача повторяется по расписанию (%s): это один очередной запуск, до завершения не обязательно успевать всё.\n\n", schedule.Describe(task.Schedule))
+	}
+	fmt.Fprintf(&b, "ЦЕЛЬ\n%s\n\nЖУРНАЛ\n", task.Goal)
 	for _, e := range task.Events {
 		fmt.Fprintf(&b, "- [%s] %s: %s\n", e.TS.Local().Format("2006-01-02 15:04"), e.Kind, e.Body)
 	}

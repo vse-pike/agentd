@@ -31,7 +31,7 @@ func TestClaimTakesEachTaskOnce(t *testing.T) {
 	s := open(t)
 	ctx := context.Background()
 	for i := 0; i < 100; i++ {
-		s.CreateTask(ctx, "goal")
+		s.CreateTask(ctx, "goal", "")
 	}
 
 	var mu sync.Mutex
@@ -71,7 +71,7 @@ func TestClaimTakesEachTaskOnce(t *testing.T) {
 func TestWaitingWakesAtDeadline(t *testing.T) {
 	s := open(t)
 	ctx := context.Background()
-	s.CreateTask(ctx, "goal")
+	s.CreateTask(ctx, "goal", "")
 	task, _, _ := s.Claim(ctx)
 
 	task.Status = Waiting
@@ -90,7 +90,7 @@ func TestWaitingWakesAtDeadline(t *testing.T) {
 func TestResetRunningReturnsToQueue(t *testing.T) {
 	s := open(t)
 	ctx := context.Background()
-	s.CreateTask(ctx, "goal")
+	s.CreateTask(ctx, "goal", "")
 	if _, ok, _ := s.Claim(ctx); !ok {
 		t.Fatal("not claimed")
 	}
@@ -105,7 +105,7 @@ func TestResetRunningReturnsToQueue(t *testing.T) {
 func TestFinishDoesNotOverwriteCancel(t *testing.T) {
 	s := open(t)
 	ctx := context.Background()
-	id, _ := s.CreateTask(ctx, "goal")
+	id, _ := s.CreateTask(ctx, "goal", "")
 	task, _, _ := s.Claim(ctx)
 	s.Cancel(ctx, id)
 
@@ -118,7 +118,7 @@ func TestFinishDoesNotOverwriteCancel(t *testing.T) {
 func TestClaimReturnsEvents(t *testing.T) {
 	s := open(t)
 	ctx := context.Background()
-	id, _ := s.CreateTask(ctx, "goal")
+	id, _ := s.CreateTask(ctx, "goal", "")
 	s.AddEvent(ctx, id, "note", "написал в ресторан")
 
 	task, ok, err := s.Claim(ctx)
@@ -127,5 +127,34 @@ func TestClaimReturnsEvents(t *testing.T) {
 	}
 	if len(task.Events) != 2 || task.Events[1].Body != "написал в ресторан" {
 		t.Fatalf("events = %+v, want goal + note", task.Events)
+	}
+}
+
+func TestRecurringCarriesSchedule(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	if _, err := s.CreateTask(ctx, "свести объявления", "daily 09:00"); err != nil {
+		t.Fatal(err)
+	}
+
+	task, ok, err := s.Claim(ctx)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if task.Schedule != "daily 09:00" {
+		t.Fatalf("schedule = %q", task.Schedule)
+	}
+
+	// воркер после done записывает waiting со следующим дедлайном; Active должен это показывать
+	task.Status, task.Deadline = Waiting, time.Now().Add(time.Hour)
+	if ok, err := s.Finish(ctx, task); err != nil || !ok {
+		t.Fatalf("finish: ok=%v err=%v", ok, err)
+	}
+	tasks, err := s.Active(ctx)
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("active: %d задач, err=%v", len(tasks), err)
+	}
+	if tasks[0].Schedule != "daily 09:00" || tasks[0].Deadline.IsZero() {
+		t.Fatalf("active[0]: schedule=%q deadline=%v", tasks[0].Schedule, tasks[0].Deadline)
 	}
 }

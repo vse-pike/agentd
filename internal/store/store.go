@@ -35,12 +35,14 @@ CREATE TABLE IF NOT EXISTS events (
 	kind    TEXT NOT NULL, -- goal | note | error
 	body    TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS events_task ON events(task_id);`
+CREATE INDEX IF NOT EXISTS events_task ON events(task_id);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS schedule TEXT NOT NULL DEFAULT ''; -- '' — разовая`
 
 type Task struct {
 	ID       int64
 	Goal     string
 	Status   string
+	Schedule string // расписание повторения, '' — разовая
 	Deadline time.Time
 	Attempts int
 	Result   string
@@ -70,10 +72,10 @@ func Open(url string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-func (s *Store) CreateTask(ctx context.Context, goal string) (int64, error) {
+func (s *Store) CreateTask(ctx context.Context, goal, schedule string) (int64, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO tasks (goal, status) VALUES ($1, $2) RETURNING id`, goal, New).Scan(&id)
+		`INSERT INTO tasks (goal, status, schedule) VALUES ($1, $2, $3) RETURNING id`, goal, New, schedule).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -105,9 +107,9 @@ func (s *Store) Claim(ctx context.Context) (task Task, ok bool, err error) {
 			WHERE status = $2 OR (status = $3 AND deadline <= now())
 			ORDER BY id LIMIT 1
 			FOR UPDATE SKIP LOCKED)
-		RETURNING id, goal, status, deadline, attempts`,
+		RETURNING id, goal, status, schedule, deadline, attempts`,
 		Running, New, Waiting,
-	).Scan(&task.ID, &task.Goal, &task.Status, &deadline, &task.Attempts)
+	).Scan(&task.ID, &task.Goal, &task.Status, &task.Schedule, &deadline, &task.Attempts)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, false, nil
 	}
@@ -168,7 +170,9 @@ func (s *Store) Cancel(ctx context.Context, id int64) (ok bool, err error) {
 
 // Active — незавершённые задачи для /list.
 func (s *Store) Active(ctx context.Context) ([]Task, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, goal, status FROM tasks WHERE status NOT IN ($1, $2, $3) ORDER BY id`,
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, goal, status, schedule, deadline
+		FROM tasks WHERE status NOT IN ($1, $2, $3) ORDER BY id`,
 		Done, Failed, Cancelled)
 	if err != nil {
 		return nil, err
@@ -177,8 +181,12 @@ func (s *Store) Active(ctx context.Context) ([]Task, error) {
 	var out []Task
 	for rows.Next() {
 		var task Task
-		if err := rows.Scan(&task.ID, &task.Goal, &task.Status); err != nil {
+		var deadline sql.NullTime
+		if err := rows.Scan(&task.ID, &task.Goal, &task.Status, &task.Schedule, &deadline); err != nil {
 			return nil, err
+		}
+		if deadline.Valid {
+			task.Deadline = deadline.Time
 		}
 		out = append(out, task)
 	}
