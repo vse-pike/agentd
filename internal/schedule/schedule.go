@@ -47,7 +47,7 @@ func Parse(text string) (spec, body string, err error) {
 	return spec, body, nil
 }
 
-// Next — ближайший момент запуска для spec строго позже from, в локальной зоне.
+// Next — ближайший момент запуска для spec строго позже from, в зоне from.
 func Next(spec string, from time.Time) (time.Time, error) {
 	kind, hhmm, ok := strings.Cut(spec, " ")
 	if !ok {
@@ -58,7 +58,7 @@ func Next(spec string, from time.Time) (time.Time, error) {
 	if kind != "daily" || scanErr != nil || h > 23 || m > 59 {
 		return time.Time{}, fmt.Errorf("неизвестное расписание %q", spec)
 	}
-	next := time.Date(from.Year(), from.Month(), from.Day(), h, m, 0, 0, time.Local)
+	next := time.Date(from.Year(), from.Month(), from.Day(), h, m, 0, 0, from.Location())
 	if !next.After(from) {
 		next = next.AddDate(0, 0, 1)
 	}
