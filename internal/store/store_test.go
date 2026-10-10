@@ -87,6 +87,21 @@ func TestWaitingWakesAtDeadline(t *testing.T) {
 	}
 }
 
+func TestResetRunningReturnsToQueue(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	s.CreateTask(ctx, "goal")
+	if _, ok, _ := s.Claim(ctx); !ok {
+		t.Fatal("not claimed")
+	}
+	if err := s.ResetRunning(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.Claim(ctx); !ok {
+		t.Fatal("not reclaimed after reset")
+	}
+}
+
 func TestFinishDoesNotOverwriteCancel(t *testing.T) {
 	s := open(t)
 	ctx := context.Background()

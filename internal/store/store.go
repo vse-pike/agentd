@@ -152,7 +152,7 @@ func (s *Store) Finish(ctx context.Context, task Task) (ok bool, err error) {
 
 // ResetRunning — на старте: всё, что осталось в running, брошено прошлым запуском.
 func (s *Store) ResetRunning(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET status = ? WHERE status = ?`, New, Running)
+	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET status = $1 WHERE status = $2`, New, Running)
 	return err
 }
 
