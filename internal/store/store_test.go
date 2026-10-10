@@ -2,19 +2,28 @@ package store
 
 import (
 	"context"
-	"path/filepath"
+	"os"
 	"sync"
 	"testing"
 	"time"
 )
 
+// open подключается к тестовой базе из TEST_DATABASE_URL (чистый лист для каждого
+// теста) или пропускает тест, если переменная не задана.
 func open(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "tasks.db"))
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL не задан — нет тестовой базы")
+	}
+	s, err := Open(url)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
+	if _, err := s.db.Exec(`TRUNCATE events, tasks RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatal(err)
+	}
 	return s
 }
 
@@ -72,7 +81,7 @@ func TestWaitingWakesAtDeadline(t *testing.T) {
 		t.Fatal("claimed before deadline")
 	}
 
-	s.db.Exec(`UPDATE tasks SET deadline = datetime('now', '-1 second')`)
+	s.db.Exec(`UPDATE tasks SET deadline = now() - interval '1 second'`)
 	if _, ok, _ := s.Claim(ctx); !ok {
 		t.Fatal("not claimed after deadline")
 	}

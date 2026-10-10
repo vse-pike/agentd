@@ -11,6 +11,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata" // зоны типа Asia/Almaty внутри alpine-образа
 
 	tele "gopkg.in/telebot.v3"
 	"gopkg.in/telebot.v3/middleware"
@@ -32,7 +33,7 @@ func main() {
 		fatal("OWNER_ID", err)
 	}
 
-	st, err := store.Open(env("DB_PATH", "data/tasks.db"))
+	st, err := store.Open(env("DATABASE_URL", "postgres://agentd:agentd@localhost:5432/agentd?sslmode=disable"))
 	if err != nil {
 		fatal("open store", err)
 	}

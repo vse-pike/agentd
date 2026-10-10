@@ -5,3 +5,4 @@ data/
 .env
 agentd
 ROADMAP.md
+docker-compose.yml
